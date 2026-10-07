@@ -3,6 +3,12 @@
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+// Extra libraries
+#include <stdio.h>
+#include <stdlib.h>
+//
+
 #include <mgba/internal/gba/audio.h>
 
 #include <mgba/internal/arm/macros.h>
@@ -24,6 +30,29 @@ static const int SAMPLE_INTERVAL = GBA_ARM7TDMI_FREQUENCY / 0x4000;
 
 static int _applyBias(struct GBAAudio* audio, int sample);
 static void _sample(struct mTiming* timing, void* user, uint32_t cyclesLate);
+
+// Tap file and flag for dumping audio playback
+static FILE* _tap[2]; // one tap for each side
+static bool _tapOpen; // is the tap open?
+static FILE* _clicktrack; // measures sample rate
+static int _nsamples; // measures the number of samples written to file 
+//
+
+// Opens the file tap
+static void _openTap(void) {
+  _tapOpen = true;
+  const char* base = getenv("MGBA_FIFO_TAP");
+  if (!base) return;
+  char path[512];
+  for (int i = 0; i < 2; i++) {
+    snprintf(path, sizeof(path), "%s/stream_%c.raw", base, 'A'+i);
+    _tap[i] = fopen(path, "wb");
+  }
+  snprintf(path, sizeof(path), "%s/clicks.raw", base);
+  _clicktrack = fopen(path, "wb");
+  _nsamples = 0;
+}
+//
 
 void GBAAudioInit(struct GBAAudio* audio, size_t samples) {
 	audio->sampleEvent.context = audio;
@@ -93,6 +122,13 @@ void GBAAudioReset(struct GBAAudio* audio) {
 
 void GBAAudioDeinit(struct GBAAudio* audio) {
 	GBAudioDeinit(&audio->psg);
+  if (_tapOpen) {
+    for (int i = 0; i < 2; i++) {
+      if (_tap[i]) fclose(_tap[i]);
+    }
+    if (_clicktrack) fclose(_clicktrack);
+    _tapOpen = false;
+  }
 }
 
 void GBAAudioResizeBuffer(struct GBAAudio* audio, size_t samples) {
@@ -331,6 +367,26 @@ void GBAAudioSampleFIFO(struct GBAAudio* audio, int fifoId, int32_t cycles) {
 			channel->fifoRead = 0;
 		}
 	}
+  
+  // Dump FIFO bytes to a file
+  if (!_tapOpen) _openTap();
+  if (_tap[fifoId]) {
+    uint8_t b[2] = {  (uint8_t) channel->internalSample, 
+                      channel->internalRemaining != 0   };
+    fwrite(&b, 1, 2, _tap[fifoId]);
+    _nsamples++;
+  }
+  // this will be inexact since there are 2 streams but the sample rate
+  // should shake out to half of what's suggested by the clicktrack
+  if (_clicktrack) {
+    if (_nsamples >= 1024) {
+      int32_t w = mTimingCurrentTime(&audio->p->timing);
+      fwrite(&w, sizeof(w), 1, _clicktrack);
+      _nsamples = 0;
+    }
+  }
+  //
+
 	int32_t until = mTimingUntil(&audio->p->timing, &audio->sampleEvent) - 1;
 	int bits = 2 << GBARegisterSOUNDBIASGetResolution(audio->soundbias);
 	until += 1 << (9 - GBARegisterSOUNDBIASGetResolution(audio->soundbias));

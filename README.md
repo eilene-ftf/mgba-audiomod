@@ -1,4 +1,43 @@
-mGBA
+# MGBA AUDIOMOD
+
+This is a modified version of mgba intended to export audio playback to a file. It's got a fairly narrow use-case. Namely, it's for sampling from [FMS](https://lobit-club.itch.io/fms). FMS is paid, proprietary software, so you will have to have your own ROM before using this. This mod is janky and intended for personal use rather than distribution, so don't expect reliability or active maintenance.
+
+BUILDING
+---
+
+Because this fork doesn't have release tags, you need to disable them when building:
+
+```sh
+mkdir build && cd build
+cmake .. -DSKIP_GIT=ON
+make -j$(nproc)
+```
+
+This works on Arch with an ungodly quantity of random dependencies. I'm genuinely not sure which packages you need to install to make this work. Cmake will tell you what's missing, and google + your package manager should tell you the rest.
+
+USING
+---
+
+Run this as
+
+```sh
+MGBA_FIFO_TAP=/tmp ./build/qt/mgba-qt
+```
+
+This will create two files `stream_A.raw` and `stream_B.raw` in `/tmp`. Don't touch them until you exit mgba, as it will keep recording until you stop the audio playback process (for safety, just quit). You can replace `/tmp` with any absolute path to a directory. These are raw bytes, and they are interleaved, as some streamed bytes are meaningless and just dropped. A byte is thus "valid" whenever the byte after it is nonzero.
+
+You will want to create a `.wav` file using the sequence of just the valid bytes from each file. I think `A` is the left output, but you can look in `audio.c` to check. The sample rate should be the sample rate of the game you're exporting from, which you should be able to find using a tool like [agbplay](https://github.com/ipatix/agbplay). In principle you should be able to figure it out directly from clicks.raw (which is just the time stamps of every 1024 samples) but I genuinely am so tired and I forgot what I was doing with that. Just use the data in the game file lol.
+
+As a general rule, you should record all the samples you want in one go and chop up your recording later. Some care may need to be taken so that the chopping is properly aligned, so you may want to chop it up before you covert. I'll probably make myself an editor so when I do I'll link the repo here. 
+
+CAVEATS
+---
+
+This whole idea is meant so that you can sample a nice-sounding synth for use as a soundfont. Tragically, the soundfont *alone* is not enough to fix GBA audio quality issues, as a game's mixer will sum and requantize all your voices before playback, which can introduce new quantization noise. As a result, sampling the output of FMS might actually not help reduce shitty GBA harmonics and hiss, depending on the mixer in your game, and it will almost certainly be more effortful to use this package to get good sound than I initially thought when I had the idea to make it. But you know why not upload it to github, maybe someone wants this.
+
+---
+
+ORIGINAL README
 ====
 
 mGBA is an emulator for running Game Boy Advance games. It aims to be faster and more accurate than many existing Game Boy Advance emulators, as well as adding features that other emulators lack. It also supports Game Boy and Game Boy Color games.
